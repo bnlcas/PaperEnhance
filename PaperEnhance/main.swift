@@ -13,7 +13,7 @@ import AppKit
 func printUsage() {
     print("""
     Usage: PaperEnhance <input_file> <output_file> [filter_parameters]
-    Example: PaperEnhance input.jpg output.jpg amount=10 invert=false mask=false  
+    Example: PaperEnhance input.jpg output.jpg amount=10 invert=false mask=false grayscale=false
     If mask=true, output will be a png with alpha//
     """)
 }
@@ -60,7 +60,7 @@ let filterParams = CommandLine.arguments.dropFirst(3).reduce(into: [String: Stri
 let enhanceAmount = Double(filterParams["amount"] ?? "10.0") ?? 10.0
 let maskImage = Bool(filterParams["mask"] ?? "false") ?? false
 let invertImage = Bool(filterParams["invert"] ?? "false") ?? false
-
+let grayScaleImage = Bool(filterParams["grayscale"] ?? "false") ?? false
 
 
 // Load the & filter input image
@@ -69,7 +69,7 @@ guard let inputImage = CIImage(contentsOf: URL(fileURLWithPath: inputPath)) else
     exit(1)
 }
 
-
+//Stock CoreImage Filter for improving documents
 guard let enhanceFilter = CIFilter(name: "CIDocumentEnhancer") else {
     print("Error: No Document Enhance Filter")
     exit(1)
@@ -78,20 +78,36 @@ enhanceFilter.setValue(inputImage, forKey: kCIInputImageKey)
 enhanceFilter.setValue(enhanceAmount, forKey: "inputAmount")
 
 
-// Get the filtered image1
 guard let enhancedImage = enhanceFilter.outputImage else {
     print("Error: Unable to generate filtered image")
     exit(1)
 }
 
+//Grayscale (and maybe contrast/brightness in the future if needed?)
+guard let colorFilter = CIFilter(name: "CIColorControls") else {
+    print("Error: No Color Filter")
+    exit(1)
+}
+colorFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
+colorFilter.setValue(inputImage, forKey: kCIInputImageKey)
+colorFilter.setValue( grayScaleImage ? 0.0 : 1.0, forKey: "inputSaturation")
+
+guard let colorEnhancedImage = colorFilter.outputImage else {
+    print("Error: Unable to generate color filtered image")
+    exit(1)
+}
+
+
+
 let outputImage : CIImage
 if(invertImage || maskImage){
+    //Invert for chalkboard effect
     guard let invertFilter = CIFilter(name: "CIColorInvert")else {
         print("Error: Invalid invert filter name")
         exit(1)
     }
 
-    invertFilter.setValue(enhancedImage, forKey: kCIInputImageKey)
+    invertFilter.setValue(colorEnhancedImage, forKey: kCIInputImageKey)
     guard let invertedImage = invertFilter.outputImage else {
         print("Error: Invert Error")
         exit(1)
@@ -100,15 +116,16 @@ if(invertImage || maskImage){
     if !maskImage{
         outputImage = invertedImage
     } else {
+        //Useful for presentations
         guard let maskFilter = CIFilter(name: "CIBlendWithRedMask") else {
             print("Error: Invalid Mask Filter")
             exit(1)
         }
-        maskFilter.setValue(enhancedImage, forKey: kCIInputMaskImageKey)
+        maskFilter.setValue(colorEnhancedImage, forKey: kCIInputMaskImageKey)
         if(invertImage){
             maskFilter.setValue(invertedImage, forKey: kCIInputBackgroundImageKey)
         } else{
-            maskFilter.setValue(enhancedImage, forKey: kCIInputBackgroundImageKey)
+            maskFilter.setValue(colorEnhancedImage, forKey: kCIInputBackgroundImageKey)
         }
         guard let maskedImage = maskFilter.outputImage else {
             print("Error: Mask Error")
@@ -118,7 +135,7 @@ if(invertImage || maskImage){
     }
 
 } else{
-    outputImage = enhancedImage
+    outputImage = colorEnhancedImage
 }
 
 // Create a Core Image context
